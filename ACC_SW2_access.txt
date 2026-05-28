@@ -1,0 +1,175 @@
+! ============================================================
+! QVIS Technology Solutions — Access Switch (South wing)
+! Device: ACC-SW2   Model: Cisco 2960-24TT (Packet Tracer)
+! Serves: R5 Tech workstations, R6 NOC, R10 Training Lab,
+!         R12 Storage, AP3 (Lab)
+! Author : Olumide Akomolafe
+! ============================================================
+
+enable
+configure terminal
+!
+hostname ACC-SW2
+no ip domain-lookup
+ip domain-name qvis.local
+!
+username netadmin privilege 15 secret 9 $9$REPLACE-WITH-STRONG-SECRET
+enable secret 9 $9$REPLACE-WITH-STRONG-SECRET
+service password-encryption
+!
+banner motd ^ QVIS - Authorised Access Only - Activity Logged ^
+!
+crypto key generate rsa modulus 2048
+ip ssh version 2
+!
+line con 0
+ logging synchronous
+ login local
+ exec-timeout 10 0
+line vty 0 15
+ transport input ssh
+ login local
+ exec-timeout 10 0
+ access-class VTY-MGMT in
+!
+! ============================================================
+! VLAN database
+! ============================================================
+!
+vlan 10
+ name MGMT
+vlan 50
+ name TECH
+vlan 60
+ name LAB
+vlan 70
+ name VOICE
+vlan 80
+ name PRINT
+vlan 90
+ name GUEST
+vlan 99
+ name BLACKHOLE-NATIVE
+!
+! ============================================================
+! Management address
+! ============================================================
+!
+interface Vlan10
+ description Mgmt SVI
+ ip address 10.10.10.3 255.255.255.0
+ no shutdown
+!
+ip default-gateway 10.10.10.1
+!
+! ============================================================
+! Spanning Tree
+! ============================================================
+!
+spanning-tree mode rapid-pvst
+spanning-tree extend system-id
+spanning-tree vlan 1-4094 priority 32768
+!
+! ============================================================
+! Uplink trunk to CORE-SW1
+! ============================================================
+!
+interface GigabitEthernet0/1
+ description >> trunk to CORE-SW1 Gi1/0/2 <<
+ switchport mode trunk
+ switchport trunk native vlan 99
+ switchport trunk allowed vlan 10,50,60,70,80,90
+ spanning-tree link-type point-to-point
+ no shutdown
+!
+! ============================================================
+! Access ports
+! ============================================================
+!
+! ---- R5 Tech workstations Fa0/1 - Fa0/10 ----
+interface range FastEthernet0/1 - 10
+ description >> R5 Tech team workstations (data + voice) <<
+ switchport mode access
+ switchport access vlan 50
+ switchport voice vlan 70
+ switchport nonegotiate
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ switchport port-security
+ switchport port-security maximum 2
+ switchport port-security violation restrict
+ switchport port-security mac-address sticky
+ no shutdown
+!
+! ---- R6 NOC Fa0/11 - Fa0/14 ----
+interface range FastEthernet0/11 - 14
+ description >> R6 NOC stations <<
+ switchport mode access
+ switchport access vlan 50
+ switchport voice vlan 70
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ no shutdown
+!
+! ---- R10 Training Lab Fa0/15 - Fa0/22 ----
+interface range FastEthernet0/15 - 22
+ description >> R10 Training Lab — isolated VLAN 60 <<
+ switchport mode access
+ switchport access vlan 60
+ switchport nonegotiate
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ no shutdown
+!
+! ---- AP3 (Lab SSID) Fa0/23 ----
+interface FastEthernet0/23
+ description >> AP3 Lab — Lab SSID only <<
+ switchport mode trunk
+ switchport trunk native vlan 10
+ switchport trunk allowed vlan 10,60
+ spanning-tree portfast trunk
+ spanning-tree bpduguard enable
+ no shutdown
+!
+! ---- R12 Storage asset scanner Fa0/24 ----
+interface FastEthernet0/24
+ description >> R12 Storage asset scanner <<
+ switchport mode access
+ switchport access vlan 50
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ no shutdown
+!
+! ============================================================
+! Mgmt restriction
+! ============================================================
+!
+ip access-list standard VTY-MGMT
+ permit 10.10.50.0 0.0.0.255
+ deny   any
+!
+! ============================================================
+! Logging & NTP
+! ============================================================
+!
+service timestamps log datetime msec localtime show-timezone
+clock timezone EST -5
+clock summer-time EDT recurring
+logging host 10.10.20.10
+logging trap informational
+ntp server 10.10.20.10 prefer
+ntp server 10.10.20.11
+!
+end
+write memory
+!
+! ============================================================
+! VERIFICATION
+! ============================================================
+!
+! show vlan brief
+! show interfaces trunk
+! show interfaces status
+! show port-security
+! ping 10.10.10.1
+!

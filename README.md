@@ -76,15 +76,3 @@ qvis-network-portfolio/
 **Documentation and communication** — Every design decision I made in this repo has a written rationale. My video portfolio adds spoken narration at ~140 words per minute for ~25 minutes total.
 
 ---
-
-## A note on lab vs. simulation
-
-Conestoga's curriculum exposed me to Cisco 2811 routers, Juniper EX4100 L3 switches, and Palo Alto next-generation firewalls. **I'm referencing Palo Alto here as part of my training background, but I haven't used it in this build because I don't currently have access to a Palo Alto lab environment.** I've delivered this portfolio entirely in **Cisco Packet Tracer 8.x** with devices Packet Tracer supports (Cisco 2911 router, Cisco 3650 L3 switch, Cisco 2960 access switches), so anyone with a laptop can reproduce what I've built. There's one Packet-Tracer-specific caveat I want to call out — the `log` keyword on ACL deny lines isn't supported — and I've stripped it from every config with a header note explaining how to restore it on real IOS.
-
----
-
-## My companion project
-
-I also built a separate AWS cloud architecture portfolio piece for the Lagos State Motor Vehicle Administration Agency / QVIS Quick Vehicle Insurance System. You can find it in my [**qvis-aws-portfolio**](https://github.com/) repository.
-
----

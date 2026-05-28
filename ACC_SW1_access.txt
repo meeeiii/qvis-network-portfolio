@@ -1,0 +1,245 @@
+! ============================================================
+! QVIS Technology Solutions — Access Switch (North wing)
+! Device: ACC-SW1   Model: Cisco 2960-24TT (Packet Tracer)
+! Serves: R1 Reception, R2 Exec, R3 Finance/HR, R4 Sales bullpen,
+!         R8 Conference room, R9 Huddle room, R11 Break room,
+!         AP1 (Lobby), AP2 (Bullpen)
+! Author : Olumide Tunde
+! ============================================================
+
+enable
+configure terminal
+!
+hostname ACC-SW1
+no ip domain-lookup
+ip domain-name qvis.local
+!
+username netadmin privilege 15 secret 9 $9$REPLACE-WITH-STRONG-SECRET
+enable secret 9 $9$REPLACE-WITH-STRONG-SECRET
+service password-encryption
+!
+banner motd ^ QVIS - Authorised Access Only - Activity Logged ^
+!
+crypto key generate rsa modulus 2048
+ip ssh version 2
+!
+line con 0
+ logging synchronous
+ login local
+ exec-timeout 10 0
+line vty 0 15
+ transport input ssh
+ login local
+ exec-timeout 10 0
+ access-class VTY-MGMT in
+!
+! ============================================================
+! VLAN database (must mirror CORE)
+! ============================================================
+!
+vlan 10
+ name MGMT
+vlan 20
+ name SERVERS
+vlan 30
+ name EXEC-FIN
+vlan 40
+ name STAFF
+vlan 70
+ name VOICE
+vlan 80
+ name PRINT
+vlan 90
+ name GUEST
+vlan 99
+ name BLACKHOLE-NATIVE
+!
+! ============================================================
+! Management address (in VLAN 10)
+! ============================================================
+!
+interface Vlan10
+ description Mgmt SVI
+ ip address 10.10.10.2 255.255.255.0
+ no shutdown
+!
+ip default-gateway 10.10.10.1
+!
+! ============================================================
+! Spanning Tree
+! ============================================================
+!
+spanning-tree mode rapid-pvst
+spanning-tree extend system-id
+! never become root - CORE is root
+spanning-tree vlan 1-4094 priority 32768
+!
+! ============================================================
+! Uplink trunk to CORE-SW1
+! ============================================================
+!
+interface GigabitEthernet0/1
+ description >> trunk to CORE-SW1 Gi1/0/1 <<
+ switchport mode trunk
+ switchport trunk native vlan 99
+ switchport trunk allowed vlan 10,20,30,40,70,80,90
+ spanning-tree link-type point-to-point
+ no shutdown
+!
+! ============================================================
+! Access ports
+! ============================================================
+!
+! ---- R2 Executive office (data + voice) Fa0/1 - Fa0/2 ----
+interface range FastEthernet0/1 - 2
+ description >> R2 Exec office (data + voice) <<
+ switchport mode access
+ switchport access vlan 30
+ switchport voice vlan 70
+ switchport nonegotiate
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ switchport port-security
+ switchport port-security maximum 2
+ switchport port-security violation shutdown
+ switchport port-security mac-address sticky
+ no shutdown
+!
+! ---- R3 Finance/HR office Fa0/3 - Fa0/4 ----
+interface range FastEthernet0/3 - 4
+ description >> R3 Finance/HR (data + voice) <<
+ switchport mode access
+ switchport access vlan 30
+ switchport voice vlan 70
+ switchport nonegotiate
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ switchport port-security
+ switchport port-security maximum 2
+ switchport port-security violation shutdown
+ switchport port-security mac-address sticky
+ no shutdown
+!
+! ---- R4 Sales bullpen Fa0/5 - Fa0/14 ----
+interface range FastEthernet0/5 - 14
+ description >> R4 Sales/Marketing/Admin bullpen <<
+ switchport mode access
+ switchport access vlan 40
+ switchport voice vlan 70
+ switchport nonegotiate
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ switchport port-security
+ switchport port-security maximum 2
+ switchport port-security violation restrict
+ switchport port-security mac-address sticky
+ no shutdown
+!
+! ---- R1 Reception Fa0/15 ----
+interface FastEthernet0/15
+ description >> R1 Reception desk <<
+ switchport mode access
+ switchport access vlan 40
+ switchport voice vlan 70
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ no shutdown
+!
+! ---- R8 Conference room Fa0/16 - Fa0/17 ----
+interface range FastEthernet0/16 - 17
+ description >> R8 Conference room (AV + phone) <<
+ switchport mode access
+ switchport access vlan 40
+ switchport voice vlan 70
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ no shutdown
+!
+! ---- R9 Huddle room Fa0/18 ----
+interface FastEthernet0/18
+ description >> R9 Huddle room <<
+ switchport mode access
+ switchport access vlan 40
+ switchport voice vlan 70
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ no shutdown
+!
+! ---- R11 Break room (smart TV / fridge) Fa0/19 ----
+interface FastEthernet0/19
+ description >> R11 Break room IoT <<
+ switchport mode access
+ switchport access vlan 90
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ no shutdown
+!
+! ---- Printers in north wing Fa0/20 - Fa0/21 ----
+interface range FastEthernet0/20 - 21
+ description >> PRN1/PRN3 — north wing MFPs <<
+ switchport mode access
+ switchport access vlan 80
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ no shutdown
+!
+! ---- APs (lobby AP1, bullpen AP2) - trunk to AP ----
+interface FastEthernet0/22
+ description >> AP1 Lobby <<
+ switchport mode trunk
+ switchport trunk native vlan 10        ! AP mgmt untagged
+ switchport trunk allowed vlan 10,90    ! Guest SSID only
+ spanning-tree portfast trunk
+ spanning-tree bpduguard enable
+ no shutdown
+!
+interface FastEthernet0/23
+ description >> AP2 Bullpen <<
+ switchport mode trunk
+ switchport trunk native vlan 10
+ switchport trunk allowed vlan 10,40,90
+ spanning-tree portfast trunk
+ spanning-tree bpduguard enable
+ no shutdown
+!
+! ---- Spare ports park in VLAN 99 and shut ----
+interface FastEthernet0/24
+ description >> spare - parked <<
+ switchport mode access
+ switchport access vlan 99
+ shutdown
+!
+! ============================================================
+! Mgmt restriction
+! ============================================================
+!
+ip access-list standard VTY-MGMT
+ permit 10.10.50.0 0.0.0.255
+ deny   any
+!
+! ============================================================
+! Logging & NTP
+! ============================================================
+!
+service timestamps log datetime msec localtime show-timezone
+clock timezone EST -5
+clock summer-time EDT recurring
+logging host 10.10.20.10
+logging trap informational
+ntp server 10.10.20.10 prefer
+ntp server 10.10.20.11
+!
+end
+write memory
+!
+! ============================================================
+! VERIFICATION
+! ============================================================
+!
+! show vlan brief
+! show interfaces trunk
+! show interfaces status
+! show port-security
+! show spanning-tree
+! ping 10.10.10.1                    <-- to CORE mgmt SVI
+!

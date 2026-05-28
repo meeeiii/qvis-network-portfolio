@@ -1,0 +1,294 @@
+! ============================================================
+! QVIS Technology Solutions — Core L3 Switch
+! Device: CORE-SW1  Model: Cisco 3650-24PS (Packet Tracer)
+! Purpose: VLAN database, SVI gateways, inter-VLAN routing,
+!          east-west ACLs, DHCP relay, server access ports
+! Author : Olumide Akomolafe
+! ============================================================
+
+enable
+configure terminal
+!
+hostname CORE-SW1
+no ip domain-lookup
+ip domain-name qvis.local
+!
+ip routing                                 ! turn on L3 forwarding
+!
+username netadmin privilege 15 secret 9 $9$REPLACE-WITH-STRONG-SECRET
+enable secret 9 $9$REPLACE-WITH-STRONG-SECRET
+service password-encryption
+!
+banner motd ^ QVIS - Authorised Access Only - Activity Logged ^
+!
+crypto key generate rsa modulus 2048
+ip ssh version 2
+!
+line con 0
+ logging synchronous
+ login local
+ exec-timeout 10 0
+line vty 0 15
+ transport input ssh
+ login local
+ exec-timeout 10 0
+ access-class VTY-MGMT in
+!
+! ============================================================
+! VLAN database
+! ============================================================
+!
+vlan 10
+ name MGMT
+vlan 20
+ name SERVERS
+vlan 30
+ name EXEC-FIN
+vlan 40
+ name STAFF
+vlan 50
+ name TECH
+vlan 60
+ name LAB
+vlan 70
+ name VOICE
+vlan 80
+ name PRINT
+vlan 90
+ name GUEST
+vlan 99
+ name BLACKHOLE-NATIVE
+!
+! ============================================================
+! Spanning Tree — pin root here, harden edges
+! ============================================================
+!
+spanning-tree mode rapid-pvst
+spanning-tree vlan 1-4094 priority 4096        ! make CORE the root for every VLAN
+spanning-tree extend system-id
+!
+! ============================================================
+! SVIs (gateways for each VLAN)
+! ============================================================
+!
+interface Vlan10
+ description MGMT gateway
+ ip address 10.10.10.1 255.255.255.0
+ no shutdown
+!
+interface Vlan20
+ description SERVERS gateway
+ ip address 10.10.20.1 255.255.255.0
+ no shutdown
+!
+interface Vlan30
+ description EXEC-FIN gateway
+ ip address 10.10.30.1 255.255.255.0
+ ip helper-address 10.10.20.10
+ ip helper-address 10.10.20.11
+ ip access-group ACL-EXEC-FIN-IN in
+ no shutdown
+!
+interface Vlan40
+ description STAFF gateway
+ ip address 10.10.40.1 255.255.255.0
+ ip helper-address 10.10.20.10
+ ip helper-address 10.10.20.11
+ ip access-group ACL-STAFF-IN in
+ no shutdown
+!
+interface Vlan50
+ description TECH gateway
+ ip address 10.10.50.1 255.255.255.0
+ ip helper-address 10.10.20.10
+ ip helper-address 10.10.20.11
+ ! TECH has no inbound restriction by design - audited instead
+ no shutdown
+!
+interface Vlan60
+ description LAB gateway - isolated from corp
+ ip address 10.10.60.1 255.255.255.0
+ ip helper-address 10.10.20.10
+ ip access-group ACL-LAB-IN in
+ no shutdown
+!
+interface Vlan70
+ description VOICE gateway
+ ip address 10.10.70.1 255.255.255.0
+ ip helper-address 10.10.20.10
+ ip helper-address 10.10.20.11
+ no shutdown
+!
+interface Vlan80
+ description PRINT gateway
+ ip address 10.10.80.1 255.255.255.0
+ ip helper-address 10.10.20.10
+ no shutdown
+!
+interface Vlan90
+ description GUEST gateway
+ ip address 10.10.90.1 255.255.255.0
+ ip helper-address 10.10.20.10
+ ip access-group ACL-GUEST-IN in
+ no shutdown
+!
+! ============================================================
+! Routed uplink to R1
+! ============================================================
+!
+interface GigabitEthernet1/0/24
+ description >> P2P routed to R1 Gi0/1 <<
+ no switchport
+ ip address 10.10.0.2 255.255.255.252
+ no shutdown
+!
+ip route 0.0.0.0 0.0.0.0 10.10.0.1            ! default toward R1
+!
+! ============================================================
+! Trunks to access switches
+! ============================================================
+!
+interface GigabitEthernet1/0/1
+ description >> trunk to ACC-SW1 (North wing) <<
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+ switchport trunk native vlan 99
+ switchport trunk allowed vlan 10,20,30,40,70,80,90
+ spanning-tree guard root
+ no shutdown
+!
+interface GigabitEthernet1/0/2
+ description >> trunk to ACC-SW2 (South wing) <<
+ switchport trunk encapsulation dot1q
+ switchport mode trunk
+ switchport trunk native vlan 99
+ switchport trunk allowed vlan 10,50,60,70,80,90
+ spanning-tree guard root
+ no shutdown
+!
+! ============================================================
+! Server access ports (DC1, DC2, FS1 live here in R7)
+! ============================================================
+!
+interface range GigabitEthernet1/0/3 - 5
+ description >> Server room access — VLAN 20 <<
+ switchport mode access
+ switchport access vlan 20
+ switchport nonegotiate
+ spanning-tree portfast
+ spanning-tree bpduguard enable
+ no shutdown
+!
+! Unused ports moved into VLAN 99 and shutdown
+interface range GigabitEthernet1/0/6 - 23
+ switchport mode access
+ switchport access vlan 99
+ shutdown
+!
+! ============================================================
+! EAST-WEST POLICY  (Named extended ACLs on SVIs, inbound)
+! ============================================================
+!
+! ---- EXEC-FIN: most restricted user VLAN -----------------
+ip access-list extended ACL-EXEC-FIN-IN
+ remark allow DNS and DHCP to DCs
+ permit udp 10.10.30.0 0.0.0.255 host 10.10.20.10 eq 53
+ permit udp 10.10.30.0 0.0.0.255 host 10.10.20.11 eq 53
+ permit udp 10.10.30.0 0.0.0.255 host 10.10.20.10 eq 67
+ permit udp 10.10.30.0 0.0.0.255 host 10.10.20.11 eq 67
+ remark allow AD authentication, LDAP, Kerberos, SMB to DCs
+ permit tcp 10.10.30.0 0.0.0.255 10.10.20.0 0.0.0.255 eq 88
+ permit udp 10.10.30.0 0.0.0.255 10.10.20.0 0.0.0.255 eq 88
+ permit tcp 10.10.30.0 0.0.0.255 10.10.20.0 0.0.0.255 eq 389
+ permit tcp 10.10.30.0 0.0.0.255 10.10.20.0 0.0.0.255 eq 636
+ permit tcp 10.10.30.0 0.0.0.255 10.10.20.0 0.0.0.255 eq 445
+ permit tcp 10.10.30.0 0.0.0.255 10.10.20.0 0.0.0.255 range 49152 65535
+ remark allow print
+ permit tcp 10.10.30.0 0.0.0.255 10.10.80.0 0.0.0.255 eq 9100
+ permit tcp 10.10.30.0 0.0.0.255 10.10.80.0 0.0.0.255 eq 631
+ remark allow voice signalling
+ permit udp 10.10.30.0 0.0.0.255 10.10.70.0 0.0.0.255 range 16384 32767
+ permit tcp 10.10.30.0 0.0.0.255 10.10.70.0 0.0.0.255 eq 5060
+ remark deny everything else to internal RFC1918
+ deny   ip 10.10.30.0 0.0.0.255 10.10.0.0 0.0.255.255
+ remark allow Internet (gets translated by R1)
+ permit ip 10.10.30.0 0.0.0.255 any
+!
+! ---- STAFF: same shape as EXEC-FIN, lower sensitivity ----
+ip access-list extended ACL-STAFF-IN
+ remark same allow list as EXEC-FIN
+ permit udp 10.10.40.0 0.0.0.255 10.10.20.0 0.0.0.255 eq 53
+ permit udp 10.10.40.0 0.0.0.255 10.10.20.0 0.0.0.255 eq 67
+ permit tcp 10.10.40.0 0.0.0.255 10.10.20.0 0.0.0.255 eq 88
+ permit udp 10.10.40.0 0.0.0.255 10.10.20.0 0.0.0.255 eq 88
+ permit tcp 10.10.40.0 0.0.0.255 10.10.20.0 0.0.0.255 eq 389
+ permit tcp 10.10.40.0 0.0.0.255 10.10.20.0 0.0.0.255 eq 636
+ permit tcp 10.10.40.0 0.0.0.255 10.10.20.0 0.0.0.255 eq 445
+ permit tcp 10.10.40.0 0.0.0.255 10.10.20.0 0.0.0.255 range 49152 65535
+ permit tcp 10.10.40.0 0.0.0.255 10.10.80.0 0.0.0.255 eq 9100
+ permit tcp 10.10.40.0 0.0.0.255 10.10.80.0 0.0.0.255 eq 631
+ permit udp 10.10.40.0 0.0.0.255 10.10.70.0 0.0.0.255 range 16384 32767
+ permit tcp 10.10.40.0 0.0.0.255 10.10.70.0 0.0.0.255 eq 5060
+ remark explicitly deny STAFF reaching EXEC-FIN
+ deny   ip 10.10.40.0 0.0.0.255 10.10.30.0 0.0.0.255
+ deny   ip 10.10.40.0 0.0.0.255 10.10.50.0 0.0.0.255
+ deny   ip 10.10.40.0 0.0.0.255 10.10.60.0 0.0.0.255
+ permit ip 10.10.40.0 0.0.0.255 any
+!
+! ---- LAB: outbound to internet only, nothing else --------
+ip access-list extended ACL-LAB-IN
+ remark allow DHCP/DNS to DC1 only (no AD join)
+ permit udp 10.10.60.0 0.0.0.255 host 10.10.20.10 eq 53
+ permit udp 10.10.60.0 0.0.0.255 host 10.10.20.10 eq 67
+ remark deny LAB -> any RFC1918
+ deny   ip 10.10.60.0 0.0.0.255 10.0.0.0 0.255.255.255
+ deny   ip 10.10.60.0 0.0.0.255 172.16.0.0 0.15.255.255
+ deny   ip 10.10.60.0 0.0.0.255 192.168.0.0 0.0.255.255
+ permit ip 10.10.60.0 0.0.0.255 any
+!
+! ---- GUEST: internet only ---------------------------------
+ip access-list extended ACL-GUEST-IN
+ remark deny GUEST -> any RFC1918
+ deny   ip 10.10.90.0 0.0.0.255 10.0.0.0 0.255.255.255
+ deny   ip 10.10.90.0 0.0.0.255 172.16.0.0 0.15.255.255
+ deny   ip 10.10.90.0 0.0.0.255 192.168.0.0 0.0.255.255
+ remark allow guest DHCP/DNS to DC1
+ permit udp 10.10.90.0 0.0.0.255 host 10.10.20.10 eq 53
+ permit udp 10.10.90.0 0.0.0.255 host 10.10.20.10 eq 67
+ permit ip 10.10.90.0 0.0.0.255 any
+!
+! ---- VTY mgmt: only TECH VLAN can SSH to switches --------
+ip access-list standard VTY-MGMT
+ permit 10.10.50.0 0.0.0.255
+ deny   any
+!
+! ============================================================
+! Logging & NTP
+! ============================================================
+!
+service timestamps log datetime msec localtime show-timezone
+clock timezone EST -5
+clock summer-time EDT recurring
+logging buffered 32768 informational
+logging host 10.10.20.10
+logging trap informational
+!
+ntp server 10.10.20.10 prefer
+ntp server 10.10.20.11
+!
+end
+write memory
+!
+! ============================================================
+! VERIFICATION
+! ============================================================
+!
+! show vlan brief
+! show interfaces trunk
+! show ip interface brief
+! show ip route
+! show ip access-lists
+! show spanning-tree root
+! ping 10.10.20.10                   <-- from CORE to DC1
+! ping 10.10.0.1                     <-- from CORE to R1
+!
